@@ -1,8 +1,6 @@
 # POsidonia aNd CHOndrilla Symbiosis
 
-## Complete Nitrogen cycling on seagrass leaves in a high-CO2 world [![DOI](https://zenodo.org/badge/450500219.svg)](https://zenodo.org/badge/latestdoi/450500219)
 
-<img align="right" src="ponchos_hex.png" height="150">
 
 This repository contains the data and code for our research article:
 
