@@ -1,0 +1,92 @@
+---
+title: "Seagrass bed cover analysis"
+author: LMM
+format: html
+---
+# Preliminaries
+
+```{r}
+#| label: packages
+#| message: false
+#| warning: false
+library(qad)
+library(dplyr)
+library(ggplot2)
+library(infer)
+library(trafo)
+library(mgcv)
+```
+
+```{r}
+#| echo: false
+#| label: directories
+ifelse(!dir.exists("figures"),
+       dir.create("figures"),
+       FALSE)
+```
+
+```{r}
+#| label: data
+cover_raw <- read.csv("data/percent_covers_50pts.csv")
+density_raw <- read.csv("data/shoot_density.csv")
+```
+
+# Cover analysis
+
+```{r}
+#| label: basic-summaries
+cover_raw |> 
+  #filter(method == "S") |> 
+  filter(ChondNuc > 0) |> 
+  summarise(mean_sp = mean(ChondNuc),
+            sd_sp = sd(ChondNuc),
+            mean_sg = mean(Poce),
+            sd_sg = sd(Poce))
+```
+
+
+```{r}
+#| label: exploratory-scatter-plot
+cover_raw |> 
+  ggplot(aes(x=Poce,y=ChondNuc)) +
+  geom_jitter() +
+  labs(y= expression(paste(italic("C. nucula"),"  (%)")),
+     x=expression(paste(italic("P. oceanica"),"  (%)"))) +
+  theme_bw()
+```
+
+```{r}
+#| label: qad-coef
+set.seed(1)
+qad_new <- qad(cover_raw$ChondNuc, cover_raw$Poce, p.value_asymmetry = TRUE)
+```
+
+```{r}
+#| label: exploratory-qad-cond-prob
+plot(qad_new) +
+  annotate("text", y = 50, x = 16, label = "DRAFT", alpha = 0.2, size = 10) +
+  labs(x = "C. nucula cover (%)",
+       y = "P. oceanica cover (%)")
+```
+
+
+```{r}
+#| label: figure-2
+mod_lm2 <- gam(ChondNuc ~ Poce, data = cover_raw)
+summary(mod_lm2)
+
+ggplot(cover_raw, aes(y = ChondNuc, x = Poce)) +
+  geom_jitter(alpha = 0.5) +
+  geom_smooth(method = "gam", formula = y ~ s(x)) +
+  #annotate("text", y = 16, x = 50, label = "DRAFT", alpha = 0.2, size = 10) +
+ labs(y= expression(paste(italic("C. nucula")," cover (%)")),
+     x=expression(paste(italic("P. oceanica")," cover (%)"))) +
+  theme_bw()
+
+ggsave("figures/fig2.svg", width = 105, units = "mm")
+
+mod_gam2 <- gam(ChondNuc ~ s(Poce), data = cover_raw, method = "REML")
+summary(mod_gam2)
+plot(mod_gam2, shade = TRUE, seWithMean = TRUE, shift = coef(mod_gam2)[1])
+gam.check(mod_gam2)
+```
