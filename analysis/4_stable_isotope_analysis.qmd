@@ -1,0 +1,143 @@
+---
+title: "4_stable_isotope_analsis"
+format: html
+---
+# Preliminaries
+```{r}
+#| label: libraries
+#| message: false
+#| warning: false
+library(SIBER) #devtools::install_github("andrewljackson/SIBER@v2.1.7")
+#library(gghdr)
+library(tidyverse)
+library(vegan)
+```
+
+```{r}
+#| label: data
+sia_raw <- read.csv("data/sid.csv")
+
+sia <- sia_raw |> 
+  rename(d13C = d13C.VPDB.0.00.,
+         d15N = d15N.AIR.0.00.) |> 
+  mutate(Condition = ifelse(Condition == "Association",
+                            "Association",
+                            "Not associated"),
+         Season = ifelse(Month == "May",
+                         "Spring",
+                         "Autumn")) |> 
+  mutate(Combination = paste(Season, Condition, sep = " ")) |> 
+  filter(!(Tissue == "Chondrilla" & d13C == -14.8 & d15N == 5.3)) #|> 
+  # filter(!(Posidonia == 1 & Chondrilla == 0 & Month == "May" & d15N > 4.7)) #test
+```
+
+
+```{r}
+p.ell <- 0.95
+
+#sia[sia$Tissue %in% c("Posidonia", "Chondrilla"),]|> 
+sia |> 
+  mutate(Season = ifelse(Month == "May",
+                         "Spring",
+                         "Autumn")) |> 
+  ggplot(aes(x = d13C, 
+             y = d15N,
+            # shape = Condition,
+             color = Tissue)) +
+  geom_point(size = 2,
+             alpha = .8) +
+  scale_color_viridis_d(option = "H") +
+  labs(y = expression(paste(delta^{15}, "N (\u2030)")),
+       x = expression(paste(delta^{13}, "C (\u2030)"))) +
+  stat_ellipse(aes(group = interaction(Condition, Tissue), 
+                   #fill = Condition, 
+                   #color = Condition
+                   ), 
+               alpha = 0, 
+               level = p.ell,
+               type = "norm",
+               geom = "polygon") +
+  #   geom_hdr_rug() +
+  facet_grid(Condition~Season)+
+  theme_light() +
+  theme(
+    #text = element_text(size = 8),
+        legend.position = "bottom",
+        legend.key.size = unit(0.3, 'cm'),
+        legend.text = element_text(size=8),
+        strip.text.x = element_text(color = "black"),
+        strip.text.y = element_text(color = "black"),
+        strip.background =element_rect(fill="white")
+        )
+
+#ggsave("figures/fig6.svg", width = 169, height = 120, units = "mm")
+```
+
+# Centroid comparisons
+
+## d13C
+
+```{r}
+set.seed(1)
+
+perm_dc <- adonis(formula = d13C ~ Season * Condition * Tissue,
+                  data = sia[sia$Tissue %in% c("Posidonia", "Chondrilla"),],
+                  method = "euclidean")
+perm_dc$aov.tab
+```
+
+```{r}
+sia |> 
+  filter(Tissue %in% c("Posidonia", "Chondrilla")) |> 
+  summarise(mean(d13C), sd(d13C), .by=c(Condition, Season, Tissue))
+```
+
+## d15N
+
+```{r}
+set.seed(1)
+
+perm_dn <- adonis(formula = d15N ~ Season * Condition * Tissue,
+                  data = sia[sia$Tissue %in% c("Posidonia", "Chondrilla"),],
+                  method = "euclidean")
+perm_dn$aov.tab
+```
+
+```{r}
+sia |> 
+  filter(Tissue %in% c("Posidonia", "Chondrilla")) |> 
+  summarise(mean(d15N), sd(d15N), .by=c(Condition, Season, Tissue))
+```
+
+## Young/Old Posidonia
+### d15N
+
+```{r}
+set.seed(1)
+
+perm_po <- adonis(formula = d15N ~  Condition * Tissue,
+                  data = sia[sia$Tissue %in% c("Posidonia", "Young leaf","Epiphytes")& sia$Season == "Spring",],
+                  method = "euclidean")
+perm_po$aov.tab
+```
+
+```{r}
+sia |> 
+  filter(Tissue %in% c("Posidonia", "Young leaf","Epiphytes") & Season == "Spring") |> 
+  summarise(mean(d15N), sd(d15N), n(), .by=c(Condition, Tissue))
+```
+### d13C
+```{r}
+set.seed(1)
+
+perm_po <- adonis(formula = d13C ~  Condition * Tissue,
+                  data = sia[sia$Tissue %in% c("Posidonia", "Young leaf","Epiphytes") & !is.na(sia$d13C) & sia$Season == "Spring",],
+                  method = "euclidean")
+perm_po$aov.tab
+```
+
+```{r}
+sia |> 
+  filter(Tissue %in% c("Posidonia", "Young leaf","Epiphytes") & !is.na(d13C) & Season == "Spring") |> 
+  summarise(mean(d13C), sd(d13C), n(), .by=c(Condition, Tissue))
+```

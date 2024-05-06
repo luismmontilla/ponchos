@@ -1,0 +1,259 @@
+---
+title: "3_nutrients"
+format: html
+editor_options: 
+  chunk_output_type: console
+---
+# Preliminaries
+
+```{r}
+#| label: packages
+#| message: false
+#| warning: false
+library(tidyverse)
+library(vegan)
+library(mvabund)
+library(knitr)
+library(patchwork)
+library(pairwiseAdonis) #install_github("pmartinezarbizu/pairwiseAdonis/pairwiseAdonis")
+```
+
+```{r}
+#| label: data
+ponchos_raw <- read.csv("data/ponchos_master.csv")
+```
+
+In order to standardize the oxygen rates, we'll apply the following conversion factors:
+
+$$ x \frac{mmol}{m^3} =  x \frac{\mu mol}{L}\cdot \text{Volume measured} (L) \cdot  \frac{1}{time (h)} \cdot \frac{1}{\text{biomass}(g)} \cdot = x\frac{\mu mol}{g_{biomass} \cdot h}$$
+
+In this case, since the samples were collected from the entire volume, we can use 0.550 L as the common volume for all the samples
+
+```{r}
+#| echo: false
+#| message: false
+nutr_names <- c("NH4", "PO4", "NO2", "NO3", "NOx", "SiO4", "DOC", "TDN", "DON")
+
+nutr_init_avg <- ponchos_raw |> 
+  filter(chamber == "environment" & is.na(O2_0)) |>
+  mutate(NOx = NO2 + NO3,
+         DON = TDN - NOx - NH4) |> 
+  group_by(Month) |> 
+  summarise(across(all_of(nutr_names), mean))
+
+nutr_init_sd <- ponchos_raw |> 
+  filter(chamber == "environment" & is.na(O2_0)) |>
+  mutate(NOx = NO2 + NO3,
+         DON = TDN - NOx - NH4) |> 
+   group_by(Month) |> 
+  summarise(across(all_of(nutr_names), sd))
+```
+
+ Because some of the data include technical replicates, let's apply a custom
+ function to select the replicates based on the combinations that minimize the coefficient of variance
+
+```{r}
+#| warning: false
+source("R/trepf.R")
+source("R/cv_get.R")
+```
+
+Then we can proceed to calculate the flux rates
+
+```{r}
+set.seed(1)
+
+nutr_rate <- nutr_long |> 
+  filter(!(Observation %in% c("t0", "rock"))) |>
+  mutate(t0 = as.POSIXct(t0, format = "%H:%M"),
+         tf = as.POSIXct(tf, format = "%H:%M"),
+         total_time = as.numeric(tf - t0),
+         Posidonia = as.factor(Posidonia),
+         Chondrilla = as.factor(Chondrilla),
+         light = as.factor(light),
+         dw_rhizome2 = ifelse(
+           !is.na(dw_rhizome),
+           dw_rhizome,
+           sample(ponchos_raw[ponchos_raw$dw_rhizome>0 & !is.na(ponchos_raw$dw_rhizome),"dw_rhizome"], 24)
+         ),
+         delta_cr = case_when(
+           ntr == "NH4" & Month == "November" ~ (conc- nutr_init_avg["NH4"][[1]][1])*(volume/(total_time)),
+           ntr == "PO4" & Month == "November" ~ (conc- nutr_init_avg["PO4"][[1]][1])*(volume/(total_time)),
+           ntr == "NO2" & Month == "November" ~ (conc- nutr_init_avg["NO2"][[1]][1])*(volume/(total_time)),
+           ntr == "NO3" & Month == "November" ~ (conc- nutr_init_avg["NO3"][[1]][1])*(volume/(total_time)),
+           ntr == "SiO4" & Month == "November" ~ (conc- nutr_init_avg["SiO4"][[1]][1])*(volume/(total_time)),
+           ntr == "DOC" & Month == "November" ~ (conc- nutr_init_avg["DOC"][[1]][1])*(volume/(total_time)),
+           ntr == "DON" & Month == "November" ~ (conc- nutr_init_avg["DON"][[1]][1])*(volume/(total_time)),
+           ntr == "NOx" & Month == "November" ~ (conc- nutr_init_avg["NOx"][[1]][1])*(volume/(total_time)),
+           ntr == "TDN" & Month == "November" ~ (conc- nutr_init_avg["TDN"][[1]][1])*(volume/(total_time)),
+           ntr == "NH4" & Month == "May" ~ (conc- nutr_init_avg["NH4"][[1]][2])*(volume/(total_time)),
+           ntr == "PO4" & Month == "May" ~ (conc- nutr_init_avg["PO4"][[1]][2])*(volume/(total_time)),
+           ntr == "NO2" & Month == "May" ~ (conc- nutr_init_avg["NO2"][[1]][2])*(volume/(total_time)),
+           ntr == "NO3" & Month == "May" ~ (conc- nutr_init_avg["NO3"][[1]][2])*(volume/(total_time)),
+           ntr == "SiO4" & Month == "May" ~ (conc- nutr_init_avg["SiO4"][[1]][2])*(volume/(total_time)),
+           ntr == "DOC" & Month == "May" ~ (conc- nutr_init_avg["DOC"][[1]][2])*(volume/(total_time)),
+           ntr == "DON" & Month == "May" ~ (conc- nutr_init_avg["DON"][[1]][2])*(volume/(total_time)),
+           ntr == "NOx" & Month == "May" ~ (conc- nutr_init_avg["NOx"][[1]][2])*(volume/(total_time)),
+           TRUE ~ (conc- nutr_init_avg["TDN"][[1]][2])*(volume/(total_time))),
+         dw = dw_leaves + dw_sponge + dw_rhizome2) #+ dw_rhizome
+         
+nutr_delta_ctrl <- nutr_rate |> 
+    filter(Observation == "Control") |>
+  group_by(light, Month, ntr) |> 
+  summarise(avg_dnutr = mean(delta_cr),
+            sd_dnutr = sd(delta_cr))
+
+nutr_rate <- nutr_rate |> 
+  filter(Observation %in% c("Posidonia", "Chondrilla", "Association")) |> 
+  mutate(delta_cr_c = case_when(
+           (ntr == "NH4") & (light == 0) & Month == "November" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "NH4" & nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "PO4" & (light == 0) & Month == "November"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "PO4" & nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "NO2" & (light == 0) & Month == "November"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "NO2"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "NO3" & (light == 0) & Month == "November"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "NO3"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "SiO4" & (light == 0) & Month == "November"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "SiO4"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "DOC" & (light == 0) & Month == "November"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "DOC"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "DON" & (light == 0) & Month == "November" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "DON"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "NOx" & (light == 0) & Month == "November" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "NOx"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "TDN" & (light == 0) & Month == "November"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "TDN"& nutr_delta_ctrl$Month == "November",4][[1]],
+           (ntr == "NH4") & (light == 1) & Month == "November" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "NH4"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "PO4" & (light == 1) & Month == "November"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "PO4"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "NO2" & (light == 1) & Month == "November"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "NO2"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "NO3" & (light == 1) & Month == "November"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "NO3"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "SiO4" & (light == 1) & Month == "November"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "SiO4"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "DOC" & (light == 1) & Month == "November" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "DOC"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "DON" & (light == 1) & Month == "November" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "DON"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "NOx" & (light == 1) & Month == "November" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "NOx"& nutr_delta_ctrl$Month == "November",4][[1]],
+           ntr == "TDN" & (light == 1) & Month == "November"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "TDN"& nutr_delta_ctrl$Month == "November",4][[1]],
+           (ntr == "NH4") & (light == 0) & Month == "May" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "NH4" & nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "PO4" & (light == 0) & Month == "May"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "PO4" & nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "NO2" & (light == 0) & Month == "May"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "NO2"& nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "NO3" & (light == 0) & Month == "May"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "NO3"& nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "SiO4" & (light == 0) & Month == "May"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "SiO4"& nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "DOC" & (light == 0) & Month == "May"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "DOC"& nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "DON" & (light == 0) & Month == "May" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "DON"& nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "NOx" & (light == 0) & Month == "May" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "NOx"& nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "TDN" & (light == 0) & Month == "May"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 0 & nutr_delta_ctrl$ntr == "TDN"& nutr_delta_ctrl$Month == "May",4][[1]],
+           (ntr == "NH4") & (light == 1) & Month == "May" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "NH4"& nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "PO4" & (light == 1) & Month == "May"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "PO4"& nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "NO2" & (light == 1) & Month == "May"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "NO2"& nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "NO3" & (light == 1) & Month == "May"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "NO3"& nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "SiO4" & (light == 1) & Month == "May"~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "SiO4"& nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "DOC" & (light == 1) & Month == "May" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "DOC"& nutr_delta_ctrl$Month == "May",4][[1]],
+           ntr == "DON" & (light == 1) & Month == "May" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "DON"& nutr_delta_ctrl$Month == "May",4][[1]],
+           TRUE ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "TDN"& nutr_delta_ctrl$Month == "May",4][[1]]),
+         rate_ntr = (delta_cr_c)/(dw)
+         )
+```
+
+### Dissolved Inorganic nutrients
+
+```{r}
+nutr_rate |>
+   mutate(light = ifelse(light == 1, "Light", "Dark"),
+          light = fct_relevel(light, "Light"),
+          Month = fct_relevel(Month, "November"),
+          Season = ifelse(Month == "November", "Autumn", "Spring"),
+          Observation = fct_recode(Observation, 
+                                  "Seagrass" = "Posidonia",
+                                  "Sponge" = "Chondrilla"),
+          Observation = fct_relevel(Observation,
+                                   "Seagrass",
+                                   "Sponge")
+         ) |>
+  filter(ntr %in% c("NOx", "PO4","NH4")) |>
+  select(chamber, ntr, Season, light, rate_ntr, Observation) |> 
+  ggplot(aes(x = Observation, y = rate_ntr, color = Season)) +
+  geom_hline(yintercept = 0) +
+  geom_point(size = 2.5,
+             alpha = 0.5,
+             position = position_dodge(width = 0.7)) +
+  stat_summary(fun = mean,
+               fun.min = function(x) mean(x) - sd(x),
+               fun.max = function(x) mean(x) + sd(x),
+               geom = "pointrange",
+               #colour = "grey50",
+               alpha = 0.5,
+               shape = 3,
+               position = position_dodge(width = 0.7)) +
+  facet_grid(ntr~light, scales = "free") +
+  #facet_wrap(light~ntr) +
+  labs(y = expression(paste("Nutrient flux (",mu,"mol", " g"^"-1"," h"^"-1", ")"))) +
+  theme_bw() +
+  theme(axis.title.x = element_blank(),
+        strip.background = element_rect(fill = "white"),
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 9),
+        legend.position = "bottom")
+
+ggsave("figures/fig4.svg",
+       width = 169,
+       height = 169,
+       units = "mm")
+```
+
+```{r}
+ntr_wide <-  nutr_rate |>
+  select(chamber, Observation, Month, light, ntr, rate_ntr) |>
+  pivot_wider(names_from = ntr,
+              values_from = rate_ntr) 
+  
+
+mvabund_obj <- ntr_wide |> 
+  select(nutr_names, -TDN, -NO3, -NO2, -SiO4) |> 
+  mvabund()
+
+meanvar.plot(mvabund_obj)
+
+mod_nutr <- manylm(mvabund_obj ~ Observation*Month*light, 
+                 data = ntr_wide)
+plot(mod_nutr)
+summary(mod_nutr)
+anova(mod_nutr, p.uni="adjusted")
+```
+
+### Dissolved Organic nutrients
+
+```{r}
+nutr_rate |>
+   mutate(light = ifelse(light == 1, "Light", "Dark"),
+          light = fct_relevel(light, "Light"),
+          Month = fct_relevel(Month, "November"),
+          Season = ifelse(Month == "November", "Autumn", "Spring"),
+          Observation = fct_recode(Observation, 
+                                  "Seagrass" = "Posidonia",
+                                  "Sponge" = "Chondrilla"),
+          Observation = fct_relevel(Observation,
+                                   "Seagrass",
+                                   "Sponge")
+         ) |>
+  filter(ntr %in% c("DOC", "DON")) |>
+  select(chamber, ntr, Season, light, rate_ntr, Observation) |> 
+  ggplot(aes(x = Observation, y = rate_ntr, color = Season)) +
+  geom_hline(yintercept = 0) +
+  geom_point(size = 2.5,
+             alpha = 0.5,
+             position = position_dodge(width = 0.7)) +
+  stat_summary(fun = mean,
+               fun.min = function(x) mean(x) - sd(x),
+               fun.max = function(x) mean(x) + sd(x),
+               geom = "pointrange",
+               #colour = "grey50",
+               alpha = 0.5,
+               shape = 3,
+               position = position_dodge(width = 0.7)) +
+  facet_grid(ntr~light, scales = "free") +
+  labs(y = expression(paste("Nutrient flux (",mu,"mol", " g"^"-1"," h"^"-1", ")"))) +
+  theme_bw() +
+  theme(axis.title.x = element_blank(),
+        strip.background = element_rect(fill = "white"),
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 9),
+        legend.position = "bottom")
+
+ggsave("figures/fig5.svg",
+       width = 169,
+       units = "mm")
+```
+
+
+
