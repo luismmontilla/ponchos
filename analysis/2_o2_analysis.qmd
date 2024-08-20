@@ -13,6 +13,7 @@ library(tidyverse)
 library(vegan)
 library(knitr)
 library(patchwork)
+library(DT)
 ```
 
 ```{r}
@@ -50,21 +51,19 @@ O2_init_avg <- ponchos_raw |>
 
 First we'll correct the $[O_2]$ in the chambers:
 
+$$
+\Delta O_2 = [O_2]_{tf}- mean([O_2]_{t0})
+$$
+$$
+x \frac{mg}{L}O_2 \cdot \text{Volume measured} (L) \cdot \frac{1}{time (h)}  \cdot \frac{1g}{1000 mg} O_2 \cdot \frac{1mol}{31.99 g}O_2 \cdot \frac{1000000 \mu mol}{mol} = x\frac{\mu mol}{h}O_2 
+$$
 
-\begin{aligned}
-
-\Delta O_2 = [O_2]_{tf}- mean([O_2]_{t0}) \\
-
-x \frac{mg}{L}O_2 \cdot \text{Volume measured} (L) \cdot \frac{1}{time (h)}  \cdot \frac{1g}{1000 mgO_2} O_2 \cdot \frac{mol}{31.99 g}O_2 \cdot \frac{1000000 \mu mol}{mol} = y\frac{\mu mol}{h}O_2 \\
-
+$$
 \Delta [O_2] = [O_2]-mean([O_2]_{controls})
+$$
 
-\end{aligned}
 
 
-In order to standardize the oxygen rates, we'll apply the following conversion factors:
-
-$$ $$
 
 ```{r}
 ponchos_data <- ponchos_raw |> 
@@ -209,21 +208,26 @@ sink()
 
 ```{r}
 #| code-fold: true
-#| label: fug3 
+#| label: fig3 
 
 f2a <- ponchos_data |> 
   rename(Season = Month) |> 
   mutate(Observation = fct_recode(Observation, 
                                   "Seagrass" = "Posidonia",
-                                  "Sponge" = "Chondrilla")) |> 
-  mutate(Season = fct_relevel(Season, "November"),
+                                  "Sponge" = "Chondrilla"),
+         Season = fct_recode(Season,
+                             "Autumn" = "November",
+                             "Spring" = "May")
+         ) |> 
+  mutate(Season = fct_relevel(Season, "Autumn"),
          Observation = fct_relevel(Observation,
                                    "Seagrass",
                                    "Sponge")
          ) |>
   filter(light == 1) |> 
+  filter(replicate != "B") |>
   ggplot(aes(x = Observation, y = O2_rate, color = Season)) +
-    geom_hline(yintercept = 0) +
+  geom_hline(yintercept = 0) +
   stat_summary(fun = mean,
                fun.min = function(x) mean(x) - sd(x),
                fun.max = function(x) mean(x) + sd(x),
@@ -249,12 +253,17 @@ f2b <- ponchos_data |>
   rename(Season = Month) |>
   mutate(Observation = fct_recode(Observation, 
                                   "Seagrass" = "Posidonia",
-                                  "Sponge" = "Chondrilla")) |> 
-  mutate(Season = fct_relevel(Season, "November"),
+                                  "Sponge" = "Chondrilla"),
+         Season = fct_recode(Season,
+                             "Autumn" = "November",
+                             "Spring" = "May")
+         ) |> 
+  mutate(Season = fct_relevel(Season, "Autumn"),
          Observation = fct_relevel(Observation,
                                    "Seagrass",
                                    "Sponge")
          ) |>
+  filter(replicate != "B") |>
   filter(light == 0) |> 
   filter(O2_rate < 0) |>
   ggplot(aes(x = Observation, y = O2_rate, color = Season)) +
@@ -271,7 +280,8 @@ f2b <- ponchos_data |>
   scale_y_continuous(breaks = seq(-5, 25, by = 5)) +
   #annotate("text", y = 6, x = 2, label = "DRAFT", alpha = 0.2, size = 10) +
   labs(y = expression(paste(O[2]," rate (",mu,"mol ", g^-1, h^-1,")")),
-       x = "Treatment",
+       x = "Observation",
+       color = c("Autumn", "Spring"),
        tag = "B") +
   theme_bw() +
   theme(panel.grid.minor = element_blank(),
@@ -286,14 +296,18 @@ f2c <- ponchos_data |>
   rename(Season = Month) |>
   mutate(Observation = fct_recode(Observation, 
                                   "Seagrass" = "Posidonia",
-                                  "Sponge" = "Chondrilla")) |> 
-  mutate(Season = fct_relevel(Season, "November"),
+                                  "Sponge" = "Chondrilla"),
+         Season = fct_recode(Season,
+                             "Autumn" = "November",
+                             "Spring" = "May")
+         ) |> 
+  mutate(Season = fct_relevel(Season, "Autumn"),
          Observation = fct_relevel(Observation,
                                    "Seagrass",
                                    "Sponge")
          ) |>
   filter(replicate != "B") |> 
-    filter(!(O2_rate > 0 & light == 0)) |>
+  filter(!(O2_rate > 0 & light == 0)) |>
   group_by(Season, light, Observation) |> 
   summarise(p_mean = mean(O2_rate), p_sd = sd(O2_rate), n = n()) |> 
   group_by(Season, Observation) |> 
@@ -322,9 +336,25 @@ f2a + f2b + f2c + plot_layout(guides = 'collect') &
   theme(legend.position='bottom') & ylim(-6, 28)
 
 ggsave("figures/fig3.svg", width = 169, height = 120, units = "mm")
+#ggsave("figures/fig3.png", width = 169, height = 120, units = "mm")
 ```
 
-
+```{r}
+#| echo: false
+ponchos_data |> 
+  rename(Season = Month) |> 
+  mutate(Observation = fct_recode(Observation, 
+                                  "Seagrass" = "Posidonia",
+                                  "Sponge" = "Chondrilla")) |> 
+  mutate(Season = fct_relevel(Season, "November"),
+         Observation = fct_relevel(Observation,
+                                   "Seagrass",
+                                   "Sponge")
+         ) |> 
+  filter(replicate != "B") |>
+  summarise(mean(O2_rate), sd(O2_rate), n(),.by = c(Observation, Season, light)) |> 
+  datatable(options = list(pageLength = 12))
+```
 
 
 Our dark and light incubations are decoupled, but we can grossly estimate gross photosynthesis by adding the oxygen rates of the dark chambers to the rates of the light chambers
@@ -356,15 +386,16 @@ ponchos_data |>
 
 ```{r}
 ponchos_data |> 
-  filter(replicate != "B" & Observation == "Chondrilla") |> 
+  filter(replicate != "B" & Observation != "Posidonia") |> 
     filter(!(O2_rate > 0 & light == 0)) |>
-  group_by(Month, light, Observation) |> 
+  #group_by(Month, light, Observation) |> 
   summarise(p_mean = mean(O2_rate), 
             p_sd = sd(O2_rate), 
-            n = n()) |> 
+            n = n(),
+            .by = c(Month, light, Observation)) |> 
   pivot_wider(values_from = p_mean,
               names_from = light,
-              -c(p_sd, n)) |> 
+              id_cols = -c(p_sd, n)) |> 
   mutate(ratio = (`1` - `0`)/`0`)
 ```
 
@@ -390,4 +421,6 @@ ponchos_data |>
   mutate(dasu_sd = sqrt(sum((sd_day^2)/n_day) + ((SD^2)/N))) |> 
   select(Observation, light, dasu, dasu_sd)
 ```
+
+
 
