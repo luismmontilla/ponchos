@@ -401,25 +401,34 @@ ponchos_data |>
 
 ```{r}
 Posi <- shoot_den |> 
-  group_by(Substrate) |> 
   summarise(Mean = mean(Shoots_m2),
             SD = sd(Shoots_m2),
-            N = n())
+            N = n(),
+            .by = Substrate) |> 
+  mutate(Substrate = ifelse(Substrate == "Posidonia_Chondrilla", 
+                            "Association",
+                            Substrate
+                            )
+         )
 
 ponchos_data |>
   filter(Observation != "Chondrilla" & replicate != "B") |> 
-  filter(!(light == 0 & chamber == "Posidonia-May" & O2_rate > 0)) |> 
+  filter(!(light == 0 & O2_rate > 0)) |>
   mutate(day = (O2_rate*24)/1e3) |> 
-  group_by(Observation, Month, light) |> 
   summarize(mean_day = mean(day),
             sd_day = sd(day),
-            n_day = n()) |>
+            n_day = n(),
+            .by = c(Observation, Month, light)) |>
   mutate(dasu = ifelse(Observation == "Posidonia",
                 mean_day * Posi[Posi$Substrate == "Posidonia","Mean"][[1]],
-                mean_day * Posi[Posi$Substrate == "Posidonia_Chondrilla","Mean"][[1]])) |> 
+                mean_day * Posi[Posi$Substrate == "Association","Mean"][[1]])) |> 
   left_join(Posi, c("Observation" = "Substrate")) |> 
   mutate(dasu_sd = sqrt(sum((sd_day^2)/n_day) + ((SD^2)/N))) |> 
-  select(Observation, light, dasu, dasu_sd)
+  select(Observation, Month, light, dasu, dasu_sd) |> 
+    mutate(
+    dasu = round(dasu, 1),
+    dasu_sd = round(dasu_sd, 1)
+  )
 ```
 
 
