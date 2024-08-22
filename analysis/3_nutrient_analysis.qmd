@@ -23,6 +23,14 @@ library(DT)
 ```
 
 ```{r}
+#| echo: false
+#| label: directories
+ifelse(!dir.exists("figures"),
+       dir.create("figures"),
+       FALSE)
+```
+
+```{r}
 #| label: data
 ponchos_raw <- read.csv("data/ponchos_master.csv")
 ```
@@ -218,6 +226,7 @@ nutr_rate |>
 
 ```{r}
 #| code-fold: true 
+#| label: figure 4a
 
 org_plot_A <- nutr_rate |>
    mutate(Treatment = ifelse(light == 1, "Light", "Dark"),
@@ -236,7 +245,7 @@ org_plot_A <- nutr_rate |>
   ggplot(aes(x = Observation, y = rate_ntr, color = Treatment)) +
   geom_hline(yintercept = 0) +
   geom_point(size = 2.5,
-             alpha = 0.5,
+             alpha = 0.35,
              position = position_dodge(width = 0.7)) +
   stat_summary(fun = mean,
                fun.min = function(x) mean(x) - sd(x),
@@ -257,13 +266,11 @@ org_plot_A <- nutr_rate |>
         panel.grid.minor = element_blank(),
         text = element_text(size = 9),
         legend.position = "bottom")
-
-#ggsave("figures/fig4.svg", width = 169, height = 169, units = "mm")
 ```
 
 ```{r}
 #| code-fold: true 
-#| label: figure-4
+#| label: figure 4b
 pooled_sd <- function(x, n) {sqrt(sum((x^2)/n))}
 
 org_plot_B <- nutr_rate |>
@@ -310,7 +317,9 @@ org_plot_B <- nutr_rate |>
 ```
 
 ```{r}
+#| label: figure 4
 org_plot_A + org_plot_B
+#ggsave("figures/fig4.png", width = 169, height = 140, units = "mm")
 ```
 
 
