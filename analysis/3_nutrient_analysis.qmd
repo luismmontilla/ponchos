@@ -15,7 +15,11 @@ library(vegan)
 library(mvabund)
 library(knitr)
 library(patchwork)
-library(pairwiseAdonis) #install_github("pmartinezarbizu/pairwiseAdonis/pairwiseAdonis")
+library(pairwiseAdonis)
+library(geosphere)
+library(ggh4x)
+#install_github("pmartinezarbizu/pairwiseAdonis/pairwiseAdonis")
+library(DT)
 ```
 
 ```{r}
@@ -61,6 +65,7 @@ source("R/cv_get.R")
 Then we can proceed to calculate the flux rates
 
 ```{r}
+#| code-fold: true 
 set.seed(1)
 
 nutr_rate <- nutr_long |> 
@@ -142,78 +147,22 @@ nutr_rate <- nutr_rate |>
            ntr == "DON" & (light == 1) & Month == "May" ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "DON"& nutr_delta_ctrl$Month == "May",4][[1]],
            TRUE ~ delta_cr- nutr_delta_ctrl[nutr_delta_ctrl$light == 1 & nutr_delta_ctrl$ntr == "TDN"& nutr_delta_ctrl$Month == "May",4][[1]]),
          rate_ntr = (delta_cr_c)/(dw)
-         )
-```
-
-### Dissolved Inorganic nutrients
-
-```{r}
-nutr_rate |>
-   mutate(light = ifelse(light == 1, "Light", "Dark"),
-          light = fct_relevel(light, "Light"),
-          Month = fct_relevel(Month, "November"),
-          Season = ifelse(Month == "November", "Autumn", "Spring"),
-          Observation = fct_recode(Observation, 
-                                  "Seagrass" = "Posidonia",
-                                  "Sponge" = "Chondrilla"),
-          Observation = fct_relevel(Observation,
-                                   "Seagrass",
-                                   "Sponge")
-         ) |>
-  filter(ntr %in% c("NOx", "PO4","NH4")) |>
-  select(chamber, ntr, Season, light, rate_ntr, Observation) |> 
-  ggplot(aes(x = Observation, y = rate_ntr, color = Season)) +
-  geom_hline(yintercept = 0) +
-  geom_point(size = 2.5,
-             alpha = 0.5,
-             position = position_dodge(width = 0.7)) +
-  stat_summary(fun = mean,
-               fun.min = function(x) mean(x) - sd(x),
-               fun.max = function(x) mean(x) + sd(x),
-               geom = "pointrange",
-               #colour = "grey50",
-               alpha = 0.5,
-               shape = 3,
-               position = position_dodge(width = 0.7)) +
-  facet_grid(ntr~light, scales = "free") +
-  #facet_wrap(light~ntr) +
-  labs(y = expression(paste("Nutrient flux (",mu,"mol", " g"^"-1"," h"^"-1", ")"))) +
-  theme_bw() +
-  theme(axis.title.x = element_blank(),
-        strip.background = element_rect(fill = "white"),
-        panel.grid.minor = element_blank(),
-        text = element_text(size = 9),
-        legend.position = "bottom")
-
-ggsave("figures/fig4.svg",
-       width = 169,
-       height = 169,
-       units = "mm")
-```
-
-```{r}
-ntr_wide <-  nutr_rate |>
-  select(chamber, Observation, Month, light, ntr, rate_ntr) |>
-  pivot_wider(names_from = ntr,
-              values_from = rate_ntr) 
-  
-
-mvabund_obj <- ntr_wide |> 
-  select(nutr_names, -TDN, -NO3, -NO2, -SiO4) |> 
-  mvabund()
-
-meanvar.plot(mvabund_obj)
-
-mod_nutr <- manylm(mvabund_obj ~ Observation*Month*light, 
-                 data = ntr_wide)
-plot(mod_nutr)
-summary(mod_nutr)
-anova(mod_nutr, p.uni="adjusted")
+         ) |> 
+  mutate(rate_day = case_when(
+    Month == "November" & light == 1 ~ rate_ntr*daylength(40, '2021-11-16'),
+    Month == "November" & light == 0 ~ rate_ntr*(24-daylength(40, '2021-11-16')),
+    Month == "May" & light == 1 ~ rate_ntr*daylength(40, '2022-05-16'),
+    TRUE ~ rate_ntr*(24-daylength(40, '2022-05-16'))
+    
+  )
+                             )
 ```
 
 ### Dissolved Organic nutrients
+#### Mean and SD by combination of treatments
 
 ```{r}
+#| echo: false
 nutr_rate |>
    mutate(light = ifelse(light == 1, "Light", "Dark"),
           light = fct_relevel(light, "Light"),
@@ -228,7 +177,63 @@ nutr_rate |>
          ) |>
   filter(ntr %in% c("DOC", "DON")) |>
   select(chamber, ntr, Season, light, rate_ntr, Observation) |> 
-  ggplot(aes(x = Observation, y = rate_ntr, color = Season)) +
+  summarise(mean(rate_ntr),
+              sd(rate_ntr),
+            n(),
+            .by = c(ntr, Season, Observation, light)
+            ) |> 
+  datatable(options = list(pageLength = 24))
+```
+
+#### Daily values by Season and Condition
+
+```{r}
+pooled_sd <- function(x, n) {sqrt(sum((x^2)/n))}
+
+nutr_rate |>
+  mutate(Treatment = ifelse(light == 1, "Light", "Dark"),
+          Treatment = fct_relevel(Treatment, "Light"),
+          Month = fct_relevel(Month, "November"),
+          Season = ifelse(Month == "November", "Autumn", "Spring"),
+          Observation = fct_recode(Observation, 
+                                  "Seagrass" = "Posidonia",
+                                  "Sponge" = "Chondrilla"),
+          Observation = fct_relevel(Observation,
+                                   "Seagrass",
+                                   "Sponge")
+         ) |> 
+  filter(ntr %in% c("DOC", "DON")) |> 
+  summarise(mean(rate_day), 
+            sd(rate_day),
+            n=n(),
+            .by = c(Season, Treatment, Observation, ntr)) |> 
+  summarise(sum_day = sum(`mean(rate_day)`),
+            new_sd = pooled_sd(`mean(rate_day)`, n),
+            .by = c(Season, Observation, ntr)
+            ) |> 
+  datatable()
+```
+
+
+
+```{r}
+#| code-fold: true 
+
+org_plot_A <- nutr_rate |>
+   mutate(Treatment = ifelse(light == 1, "Light", "Dark"),
+          Treatment = fct_relevel(Treatment, "Light"),
+          Month = fct_relevel(Month, "November"),
+          Season = ifelse(Month == "November", "Autumn", "Spring"),
+          Observation = fct_recode(Observation, 
+                                  "Seagrass" = "Posidonia",
+                                  "Sponge" = "Chondrilla"),
+          Observation = fct_relevel(Observation,
+                                   "Seagrass",
+                                   "Sponge")
+         ) |>
+  filter(ntr %in% c("DOC", "DON")) |>
+  select(chamber, ntr, Season, Treatment, rate_ntr, Observation) |> 
+  ggplot(aes(x = Observation, y = rate_ntr, color = Treatment)) +
   geom_hline(yintercept = 0) +
   geom_point(size = 2.5,
              alpha = 0.5,
@@ -241,8 +246,11 @@ nutr_rate |>
                alpha = 0.5,
                shape = 3,
                position = position_dodge(width = 0.7)) +
-  facet_grid(ntr~light, scales = "free") +
-  labs(y = expression(paste("Nutrient flux (",mu,"mol", " g"^"-1"," h"^"-1", ")"))) +
+  facet_grid(ntr~Season, scales = "free") +
+  scale_color_manual(values = c("blue", "black")) +
+  labs(y = expression(paste("Nutrient flux (",mu,"mol", " g"^"-1"," h"^"-1", ")")),
+       tag = "A"
+       ) +
   theme_bw() +
   theme(axis.title.x = element_blank(),
         strip.background = element_rect(fill = "white"),
@@ -250,10 +258,335 @@ nutr_rate |>
         text = element_text(size = 9),
         legend.position = "bottom")
 
-ggsave("figures/fig5.svg",
-       width = 169,
-       units = "mm")
+#ggsave("figures/fig4.svg", width = 169, height = 169, units = "mm")
+```
+
+```{r}
+#| code-fold: true 
+#| label: figure-4
+pooled_sd <- function(x, n) {sqrt(sum((x^2)/n))}
+
+org_plot_B <- nutr_rate |>
+  mutate(Treatment = ifelse(light == 1, "Light", "Dark"),
+          Treatment = fct_relevel(Treatment, "Light"),
+          Month = fct_relevel(Month, "November"),
+          Season = ifelse(Month == "November", "Autumn", "Spring"),
+          Observation = fct_recode(Observation, 
+                                  "Seagrass" = "Posidonia",
+                                  "Sponge" = "Chondrilla"),
+          Observation = fct_relevel(Observation,
+                                   "Seagrass",
+                                   "Sponge")
+         ) |> 
+  filter(ntr %in% c("DOC", "DON")) |> 
+  summarise(mean(rate_day), 
+            sd(rate_day),
+            n=n(),
+            .by = c(Season, Treatment, Observation, ntr)) |> 
+  summarise(sum_day = sum(`mean(rate_day)`),
+            new_sd = pooled_sd(`mean(rate_day)`, n),
+            .by = c(Season, Observation, ntr)
+            ) |> 
+  ggplot(aes(x = Observation, y = sum_day, color = Season)) +
+  geom_hline(yintercept = 0) +
+  geom_pointrange(aes(ymin = sum_day-new_sd,
+                  ymax = sum_day+new_sd),
+                  position = position_dodge(0.5),
+                  shape = 3,
+                  size = 1) +
+  facet_grid(ntr~., scales = "free") +
+  facetted_pos_scales(
+    y = (ntr == "DON" ~ scale_y_continuous(limits = c(0, 40)))
+  ) +
+  labs(y = expression(paste("Nutrient flux (",mu,"mol", " g"^"-1"," day"^"-1", ")")),
+       tag = "B"
+       ) +
+  theme_bw() +
+  theme(axis.title.x = element_blank(),
+        strip.background = element_rect(fill = "white"),
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 9),
+        legend.position = "bottom")
+```
+
+```{r}
+org_plot_A + org_plot_B
 ```
 
 
+### Dissolved Inorganic nutrients
+#### Mean and SD by combination of treatments
+
+```{r}
+#| echo: false
+#| fold: true
+nutr_rate |>
+   mutate(light = ifelse(light == 1, "Light", "Dark"),
+          light = fct_relevel(light, "Light"),
+          Month = fct_relevel(Month, "November"),
+          Season = ifelse(Month == "November", "Autumn", "Spring"),
+          Observation = fct_recode(Observation, 
+                                  "Seagrass" = "Posidonia",
+                                  "Sponge" = "Chondrilla"),
+          Observation = fct_relevel(Observation,
+                                   "Seagrass",
+                                   "Sponge")
+         ) |>
+  filter(ntr %in% c("NOx", "PO4","NH4")) |>
+  select(chamber, ntr, Season, light, rate_ntr, Observation) |> 
+  summarise(mean(rate_ntr),
+              sd(rate_ntr),
+            n(),
+            .by = c(ntr, Season, Observation, light)
+            ) |> 
+  datatable(options = list(pageLength = 36))
+```
+
+#### Daily values by Season and Condition
+
+```{r}
+#| fold: true
+nutr_rate |>
+  mutate(Treatment = ifelse(light == 1, "Light", "Dark"),
+          Treatment = fct_relevel(Treatment, "Light"),
+          Month = fct_relevel(Month, "November"),
+          Season = ifelse(Month == "November", "Autumn", "Spring"),
+          Observation = fct_recode(Observation, 
+                                  "Seagrass" = "Posidonia",
+                                  "Sponge" = "Chondrilla"),
+          Observation = fct_relevel(Observation,
+                                   "Seagrass",
+                                   "Sponge")
+         ) |> 
+  filter(ntr %in% c("NOx", "PO4","NH4")) |>
+  summarise(mean(rate_day), 
+            sd(rate_day),
+            n=n(),
+            .by = c(Season, Treatment, Observation, ntr)) |> 
+  summarise(sum_day = sum(`mean(rate_day)`),
+            new_sd = pooled_sd(`mean(rate_day)`, n),
+            .by = c(Season, Observation, ntr)
+            ) |>
+  datatable()
+```
+
+
+```{r}
+#| code-fold: true 
+#| label: figure-5a
+inorg_plot_A <- nutr_rate |>
+   mutate(Treatment = ifelse(light == 1, "Light", "Dark"),
+          Treatment = fct_relevel(Treatment, "Light"),
+          Month = fct_relevel(Month, "November"),
+          Season = ifelse(Month == "November", "Autumn", "Spring"),
+          Observation = fct_recode(Observation, 
+                                  "Seagrass" = "Posidonia",
+                                  "Sponge" = "Chondrilla"),
+          Observation = fct_relevel(Observation,
+                                   "Seagrass",
+                                   "Sponge")
+         ) |>
+  filter(ntr %in% c("NOx", "PO4","NH4")) |>
+  select(chamber, ntr, Season, Treatment, rate_ntr, Observation) |> 
+  ggplot(aes(x = Observation, y = rate_ntr, color = Treatment)) +
+  geom_hline(yintercept = 0) +
+  geom_point(size = 2.5,
+             alpha = 0.5,
+             position = position_dodge(width = 0.7)) +
+  stat_summary(fun = mean,
+               fun.min = function(x) mean(x) - sd(x),
+               fun.max = function(x) mean(x) + sd(x),
+               geom = "pointrange",
+               #colour = "grey50",
+               alpha = 0.5,
+               shape = 3,
+               position = position_dodge(width = 0.7)) +
+  facet_grid(ntr~Season, scales = "free") +
+  scale_color_manual(values = c("blue", "black")) +
+  labs(y = expression(paste("Nutrient flux (",mu,"mol", " g"^"-1"," h"^"-1", ")")),
+       tag = "A"
+       ) +
+  theme_bw() +
+  theme(axis.title.x = element_blank(),
+        strip.background = element_rect(fill = "white"),
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 9),
+        legend.position = "bottom")
+```
+
+
+```{r}
+#| code-fold: true 
+#| label: figure-5b
+
+inorg_plot_B <- nutr_rate |>
+  mutate(Treatment = ifelse(light == 1, "Light", "Dark"),
+          Treatment = fct_relevel(Treatment, "Light"),
+          Month = fct_relevel(Month, "November"),
+          Season = ifelse(Month == "November", "Autumn", "Spring"),
+          Observation = fct_recode(Observation, 
+                                  "Seagrass" = "Posidonia",
+                                  "Sponge" = "Chondrilla"),
+          Observation = fct_relevel(Observation,
+                                   "Seagrass",
+                                   "Sponge")
+         ) |> 
+  filter(ntr %in% c("NOx", "PO4","NH4")) |>
+  summarise(mean(rate_day), 
+            sd(rate_day),
+            n=n(),
+            .by = c(Season, Treatment, Observation, ntr)) |> 
+  summarise(sum_day = sum(`mean(rate_day)`),
+            sum_sd_day = sum(`sd(rate_day)`),
+            new_sd = pooled_sd(`mean(rate_day)`, n),
+            .by = c(Season, Observation, ntr)
+            ) |> 
+  ggplot(aes(x = Observation, y = sum_day, color = Season)) +
+  geom_hline(yintercept = 0) +
+  geom_pointrange(aes(ymin = sum_day-new_sd,
+                  ymax = sum_day+new_sd),
+                  position = position_dodge(0.5),
+                  shape = 3,
+                  size = 1) +
+  facet_grid(ntr~., scales = "free") +
+  facetted_pos_scales(
+    y = list(ntr == "NH4" ~ scale_y_continuous(limits = c(-5, 5)),
+             ntr == "PO4" ~ scale_y_continuous(limits = c(-0.1, 1)))
+  ) +
+  labs(y = expression(paste("Nutrient flux (",mu,"mol", " g"^"-1"," day"^"-1", ")")),
+       tag = "B"
+       ) +
+  theme_bw() +
+  theme(axis.title.x = element_blank(),
+        strip.background = element_rect(fill = "white"),
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 9),
+        legend.position = "bottom")
+
+```
+
+```{r}
+inorg_plot_A + inorg_plot_B
+#ggsave("figures/fig5.svg", width = 169, height = 169, units = "mm")
+```
+
+
+## Statistical analyses
+
+```{r}
+#| label: Nutrient individual permanova
+
+ntr_wide <-  nutr_rate |>
+  select(chamber, Observation, Month, light, ntr, rate_ntr) |>
+  pivot_wider(names_from = ntr,
+              values_from = rate_ntr) 
+
+ntr_select <- ntr_wide |> 
+  select(nutr_names, -TDN, -NO3, -NO2, -SiO4) |> 
+  colnames()
+
+ntr_perm <- lapply(ntr_select, function(x){
+  result <- adonis2(formula = ntr_wide[,x] ~ Observation * Month * light,
+                    data = ntr_wide,
+                    method = "euclidean"
+                    )
+})
+
+names(ntr_perm) <- ntr_select
+```
+
+### supp table 3
+
+```{r}
+#| label: supplementary table 3
+
+
+ntr_summ <- ntr_wide |> 
+  mutate(
+    Condition = ifelse(ntr_wide$light == 1, "Light", "Dark"),
+    Season = ifelse(ntr_wide$Month == "November", "Autumn", "Spring"),
+    inter = paste(Season,"-",Condition, sep = "")
+    ) |> 
+  select(Observation, Season, Condition, ntr_select) |> 
+  #group_by(Observation, Season, Condition) |> 
+  summarize(
+    across(is.numeric, list(mean = mean, sd = sd, 'n' = ~n())),
+    .by = c(Observation, Season, Condition)
+  ) 
+
+ntr_summ |> 
+  datatable()
+
+
+sink("supplementary/supp_table_3.md")
+ntr_summ |> 
+    kable(format = "markdown",
+        caption = "Organic and inorganic nutrient mean, sd and n")
+
+sink()
+```
+
+### Pairwise-tests
+
+```{r}
+#| label: DOC
+
+ntr_wide |> 
+  mutate(
+    Treatment = ifelse(ntr_wide$light == 1, "Light", "Dark"),
+    Season = ifelse(ntr_wide$Month == "November", "Autumn", "Spring"),
+    inter = paste(Season,"-",Treatment, sep = "")
+    ) |> 
+  select(DOC, inter) |> 
+  {\(x) aov(DOC~inter,
+                         data = x)}() |> 
+  TukeyHSD() 
+```
+
+```{r}
+#| label: NH4
+ntr_wide |> 
+  mutate(
+    Treatment = ifelse(ntr_wide$light == 1, "Light", "Dark"),
+    Season = ifelse(ntr_wide$Month == "November", "Autumn", "Spring"),
+    inter = paste(Season,"-",Treatment, sep = "")
+    ) |> 
+  select(NH4, inter) |> 
+  {\(x) aov(NH4~inter,
+                         data = x)}() |> 
+  TukeyHSD() 
+```
+
+```{r}
+#| label: PO4
+ntr_wide |> 
+  select(PO4, Observation) |> 
+  {\(x) aov(PO4~Observation,
+                         data = x)}() |> 
+  TukeyHSD() 
+```
+
+```{r}
+#| label: NOx
+ntr_wide |> 
+  mutate(
+    Treatment = ifelse(ntr_wide$light == 1, "Light", "Dark"),
+    Season = ifelse(ntr_wide$Month == "November", "Autumn", "Spring"),
+    inter = paste(Season,"-",Treatment, sep = "")
+    ) |> 
+  select(NOx, inter) |> 
+  {\(x) aov(NOx~inter,
+                         data = x)}() |> 
+  TukeyHSD() 
+
+ntr_wide |> 
+  mutate(
+    Treatment = ifelse(ntr_wide$light == 1, "Light", "Dark"),
+    inter = paste(Observation,"-",Treatment, sep = "")
+    ) |> 
+  select(NOx, inter) |> 
+  {\(x) aov(NOx~inter,
+                         data = x)}() |> 
+  TukeyHSD()
+```
 
