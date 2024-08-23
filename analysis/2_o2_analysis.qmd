@@ -11,7 +11,7 @@ format: html
 #| warning: false
 library(tidyverse)
 library(vegan)
-library(knitr)
+library(kableExtra)
 library(patchwork)
 library(DT)
 ```
@@ -151,20 +151,19 @@ suppt1 <- ponchos_data |>
 ```
 
 ```{r}
-sink("supplementary/supp_table_1.md")
-
+#| label: supplementary table 1
 suppt1$inter |> 
   as.data.frame() |> 
   rownames_to_column("Combination") |> 
-  kable(format = "markdown",
+  kable(format = "html",
         col.names = c("Combination",
                       "Difference",
                       "Lower value",
                       "Upper value",
                       "Adjusted p"),
-        caption = "test")
-
-sink()
+        caption = "Table S1: Pairwise comparisons between the net primary production mean rates for the interaction among Seasons and Treatments based on Tukey Honest Significant differences") |> 
+  save_kable("supplementary/supp_table_1.html", 
+             self_contained = TRUE)
 ```
 
 
@@ -189,20 +188,20 @@ suppt2 <- ponchos_data |>
 ```
 
 ```{r}
-sink("supplementary/supp_table_2.md")
+#| label: supplementary table 2
 
 suppt2$inter |> 
   as.data.frame() |> 
   rownames_to_column("Combination") |> 
-  kable(format = "markdown",
+  kable(format = "html",
         col.names = c("Combination",
                       "Difference",
                       "Lower value",
                       "Upper value",
                       "Adjusted p"),
-        caption = "test")
-
-sink()
+        caption = "Table S2: Pairwise comparisons between the respiration mean rates for the interaction among Seasons and Treatments based on Tukey Honest Significant differences") |>
+  save_kable("supplementary/supp_table_2.html", 
+             self_contained = TRUE)
 ```
 
 
