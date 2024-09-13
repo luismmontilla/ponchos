@@ -185,8 +185,15 @@ suppt1$inter |>
 
 ```{r pairw-resp}
 suppt2 <- ponchos_data |> 
-  mutate(inter =paste(ponchos_data$Month,"-",ponchos_data$Observation, sep = "")) |> 
-    filter(light == 0) |> 
+  mutate(
+    Observation = case_when(
+      Observation == "Posidonia" ~ "Plant",
+      Observation == "Chondrilla" ~ "Sponge",
+      .default = "Association"
+    ),
+    inter = paste(Season,"-",Observation, sep = "")
+    ) |>
+  filter(light == 0) |> 
   filter(O2_rate < 0) |>
   select(O2_rate, inter) |> 
   {\(x) aov(O2_rate~inter,
@@ -194,13 +201,20 @@ suppt2 <- ponchos_data |>
   TukeyHSD()
 
 
-  ponchos_data |> 
-  mutate(inter =paste(ponchos_data$Month,"-",ponchos_data$Observation, sep = "")) |> 
-    filter(light == 0) |> 
-    filter(O2_rate < 0) |>
-  select(O2_rate, inter) |> 
-    group_by(inter) |> 
-    summarise(mean(O2_rate))
+ponchos_data |>
+  mutate(
+    Observation = case_when(
+      Observation == "Posidonia" ~ "Plant",
+      Observation == "Chondrilla" ~ "Sponge",
+      .default = "Association"
+    ),
+    inter = paste(Season,"-",Observation, sep = "")
+    ) |>
+  filter(light == 0) |>
+  filter(O2_rate < 0) |>
+  select(O2_rate, inter) |>
+  group_by(inter) |>
+  summarise(mean(O2_rate))
 ```
 
 ```{r}
