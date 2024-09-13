@@ -593,6 +593,12 @@ NH4_parw <- ntr_wide |>
 #| label: PO4
 PO4_parw <- ntr_wide |> 
   select(PO4, Condition) |> 
+  mutate(
+    Condition = case_when(
+      Condition == "Posidonia" ~ "Plant",
+      Condition == "Chondrilla" ~ "Sponge",
+      .default = "Association")
+  ) |> 
   {\(x) aov(PO4~Condition,
                          data = x)}() |> 
   TukeyHSD() 
@@ -613,6 +619,10 @@ NOxa_parw <- ntr_wide |>
 
 NOxb_parw <- ntr_wide |> 
   mutate(
+    Condition = case_when(
+      Condition == "Posidonia" ~ "Plant",
+      Condition == "Chondrilla" ~ "Sponge",
+      .default = "Association"),
     Treatment = ifelse(Treatment == 1, "Light", "Dark"),
     inter = paste(Condition,"-",Treatment, sep = "")
     ) |> 
