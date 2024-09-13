@@ -88,7 +88,9 @@ ponchos_data <- ponchos_raw |>
            dw_leaves + dw_sponge,
            dw_leaves + dw_sponge + dw_rhizome
          ),
-         unc_rate_h = (delta_O2*volume*1000)/(31.99*total_time))
+         unc_rate_h = (delta_O2*volume*1000)/(31.99*total_time),
+         Season = ifelse(Month == "May", "Spring", "Fall")
+         )
 
 O2_ctrl_avg <- ponchos_data |> 
   filter(Observation == "Control") |> 
@@ -131,23 +133,37 @@ perm_resp$aov.tab
 ## Pairwise-tests
 
 ```{r pairw-net-photo}
+set.seed(1)
+
 suppt1 <- ponchos_data |> 
-  mutate(inter =paste(ponchos_data$Month,"-",ponchos_data$Observation, sep = "")) |> 
-    filter(light == 1) |> 
+  mutate(
+    Observation = case_when(
+      Observation == "Posidonia" ~ "Plant",
+      Observation == "Chondrilla" ~ "Sponge",
+      .default = "Association"
+    ),
+    inter = paste(Season,"-",Observation, sep = "")) |>
+  filter(light == 1) |>
   select(O2_rate, inter) |> 
   {\(x) aov(O2_rate~inter,
                          data = x)}() |> 
   TukeyHSD() 
 
 
- ponchos_data |> 
-  mutate(inter =paste(ponchos_data$Month,"-",ponchos_data$Observation, sep = "")) |> 
-    filter(light == 1) |> 
-  select(O2_rate, inter) |> 
-    group_by(inter) |> 
-    summarise(mean(O2_rate),
-              sd(O2_rate
-                 ))
+ponchos_data |> 
+  mutate(
+    Observation = case_when(
+      Observation == "Posidonia" ~ "Plant",
+      Observation == "Chondrilla" ~ "Sponge",
+      .default = "Association"
+    ),
+    inter = paste(Season,"-",Observation, sep = "")) |> 
+  filter(light == 1) |>
+  select(O2_rate, inter) |>
+  group_by(inter) |>
+  summarise(mean(O2_rate),
+            sd(O2_rate
+               ))
 ```
 
 ```{r}
