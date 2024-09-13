@@ -506,7 +506,11 @@ ntr_select <- ntr_wide |>
 ntr_wide |> 
   mutate(
     Treatment = ifelse(Treatment == 1, "Light", "Dark"),
-    Season = ifelse(Season == "November", "Autumn", "Spring")
+    Season = ifelse(Season == "November", "Autumn", "Spring"),
+    Condition = case_when(
+      Condition == "Posidonia" ~ "Plant",
+      Condition == "Chondrilla" ~ "Sponge",
+      .default = "Association")
     ) |> 
   select(Condition, Season, Treatment, ntr_select) |> 
   summarize(
