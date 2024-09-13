@@ -531,7 +531,8 @@ ntr_perm <- lapply(ntr_select, function(x){
   set.seed(123)
   result <- adonis2(formula = ntr_wide[,x] ~ Condition * Season * Treatment,
                     data = ntr_wide,
-                    method = "euclidean"
+                    method = "euclidean",
+                    by = "terms"
                     )
 })
 
